@@ -1,9 +1,11 @@
 from dane_jwe_jws.authentication import Authentication
 from lib.mqtt_sender import MQTTSender
 from dane_jwe_jws.util import Util
+from lib.util import environment
+import multiprocessing
 import base64
 import json
-import os
+import time
 
 
 class AuthorizationClient:
@@ -52,11 +54,41 @@ class AuthorizationClient:
 
         # Finally, we trim the excess fat off x5u and compare it against the whitelist.
         x5u = Util.get_name_from_dns_uri(x5u)
-        if x5u not in os.environ['DNS_WHITELIST'].split(','):
+        if x5u not in environment.get('DNS_WHITELIST'):
             return False
 
-        # Now that we know the message is from a whitelisted source, we verify its integrity.
-        Authentication.verify(message.payload)
+        # Now that we know the message is from a whitelisted source, we verify its integrity using the authorize_with_timeout method.
+        passed_authentication = AuthorizationClient.verify_authentication_with_timeout(message.payload)
 
         # If no exception has been raised / we have not returned yet, then message passed all the checks.
-        return True
+        return passed_authentication
+
+    @staticmethod
+    def verify_authentication_with_timeout(message_payload):
+        """
+        Authorizes a message with timeout, implemented using the multiprocessing module.
+        """
+        # First, get the context and a queue; this will allow us to return a boolean value from the _authorize method.
+        context = multiprocessing.get_context('spawn')
+        queue = context.Queue()
+
+        # Instantiate the process, with the target at _authorize and the queue and message_payload as arguments.
+        process = context.Process(target=AuthorizationClient._authorize, args=(queue, message_payload))
+        process.start()
+
+        # Wait for the process to join with a timeout variable (changed in .env).
+        process.join(9)
+
+        # Check if the process is still alive (timed out). If so, kill it and return False.
+        if process.is_alive():
+            process.terminate()
+            return False
+
+        # Process concluded normally, gather the output from the queue.
+        return queue.get()
+
+    @staticmethod
+    def _authorize(queue, message_payload):
+        queue.put(False)
+        Authentication.verify(message_payload)
+        queue.put(True)
