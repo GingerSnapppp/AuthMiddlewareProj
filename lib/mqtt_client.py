@@ -20,7 +20,7 @@ class MQTTClient:
 
         # Sets the proper protocol, username, password, hostname, and port.
         # client.connect also makes the connection.
-        client.tls_set(tls_version=mqtt.ssl.PROTOCOL_TLS)
+        # client.tls_set(tls_version=mqtt.ssl.PROTOCOL_TLS)
         client.username_pw_set(username, password)
         client.connect(hostname, port)
 
